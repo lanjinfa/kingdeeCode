@@ -1,0 +1,10 @@
+**/.vs
+**/bin
+**/obj
+**/Properties
+*.csproj
+*.sln
+*.pkgdef
+*.suo
+*.dll
+.DS_Store

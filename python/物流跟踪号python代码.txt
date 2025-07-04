@@ -1,0 +1,90 @@
+#引入clr运行库
+import clr
+#添加对cloud插件开发的常用组件的引用
+clr.AddReference('System')
+clr.AddReference('System.Data')
+clr.AddReference('Kingdee.BOS')
+clr.AddReference('Kingdee.BOS.DataEntity')
+clr.AddReference('Kingdee.BOS.Core')
+clr.AddReference('Kingdee.BOS.App')
+clr.AddReference('Kingdee.BOS.App.Core')
+clr.AddReference('Kingdee.BOS.ServiceHelper')
+#导入cloud基础库中的常用实体对象（分命名空间导入，不会递归导入）
+from Kingdee.BOS import *
+from Kingdee.BOS.Core import *
+from Kingdee.BOS.Core.DependencyRules import *
+from Kingdee.BOS.Core.Bill import *
+from Kingdee.BOS.Core.DynamicForm.PlugIn import *
+from Kingdee.BOS.Core.DynamicForm.PlugIn.ControlModel import *
+from System import *
+from System.Data import *
+from Kingdee.BOS.App.Data import *
+from System.Collections.Generic import List
+from Kingdee.BOS.ServiceHelper import *
+from Kingdee.BOS.Core.DynamicForm import *
+from Kingdee.BOS.Core.Metadata.EntityElement import *
+from Kingdee.BOS.Core.Metadata.FieldElement import *
+from Kingdee.BOS.Orm.DataEntity import *
+'''
+注释旧的sql语句
+sqlStr = ("""/*dialect*/select top 1 t.F_BGP_LOGNO from (
+select top 1 F_BGP_LOGNO
+from T_PUR_Receive 
+where F_BGP_LOGNO like '{0}%'
+order by F_BGP_LOGNO desc
+union all
+select top 1 F_BGP_LOGNO
+from T_SAL_ORDER
+where F_BGP_LOGNO like '{0}%'
+order by F_BGP_LOGNO desc) t order by t.F_BGP_LOGNO desc""").format(NewLogNo);
+'''
+#根据当前物流跟踪号(不包含流水号)，查询数据库获取最近的一条历史物流跟踪号，用于生成流水号
+def GetHistoryLogNoByNewLogNo(NewLogNo):
+	sqlStr1 = ("""select top 1 F_BGP_LOGNO_SJ
+from T_PUR_Receive
+where F_BGP_LOGNO_SJ like '{0}%'
+order by F_BGP_LOGNO_SJ desc""").format(NewLogNo);
+	historyLogNo = DBUtils.ExecuteScalar(this.Context,sqlStr1,"0");
+	if(historyLogNo=="0"):#不存在历史物流跟踪号，流水从1开始
+		return NewLogNo+"001";
+	else:#存在历史物流跟踪号，流水为先前的流水号+1
+		oldLotNo = historyLogNo[9:];#获取历史物流跟踪号的流水号
+		newLotNo = int(oldLotNo,10)+1;#生成新的流水号
+		newLotNoStr = str(newLotNo).zfill(3);#流水号不够三位，补0
+		return NewLogNo+newLotNoStr;
+
+def BarItemClick(e):
+	key=e.BarItemKey.ToUpperInvariant();#菜单标识大写
+	if(key=="BGP_CreateTrackingNumber".ToUpperInvariant()):
+		documentStstus = str(this.View.Model.GetValue("FDocumentStatus")).ToUpperInvariant();#单据状态
+		if(documentStstus=="C" or documentStstus =="B" or documentStstus =="Z"):
+			this.View.ShowMessage("单据状态为创建或重新审核才可以使用该功能！");
+			return;
+		trackingNumberInfo = this.View.Model.GetValue("F_BGP_LOGNO_SJ");#当前单据上实际物流跟踪号字段
+		if(trackingNumberInfo != None):
+			trackingNumber = str(trackingNumberInfo).strip();
+			if(len(trackingNumber) != 0):
+				this.View.ShowMessage("实际物流跟踪号已存在，无需重复生成！");
+				return;
+		dataValue = this.View.Model.GetValue("F_BGP_SJSLRQ");#实际收料日期
+		if(dataValue==None):
+			this.View.ShowMessage("实际收料日期未填写，请填写！");
+			return;
+		startPort = this.View.Model.GetValue("F_BGP_StartPort_SJ");#实际起运港
+		if(startPort==None):
+			this.View.ShowMessage("实际出发港未填写，请填写！");
+			return;
+		endPort = this.View.Model.GetValue("F_BGP_Purposeport_SJ");#实际目的港
+		if(endPort==None):
+			this.View.ShowMessage("实际目的港未填写，请填写！");
+			return;
+		startPortName ="{0}".format(startPort["Name"]);#起运港名称
+		endPortName = "{0}".format(endPort["Name"]);#目的港名称
+		date = str(dataValue);#实际收料日期
+		year = date[2:4];#获取业务日期年份后两位
+		logNo = str.Format("{0}{1}-{2}",startPortName,year,endPortName);#新的物流跟踪号前缀，不包含流水号
+		newLogNo = GetHistoryLogNoByNewLogNo(logNo);
+		this.View.Model.SetValue("F_BGP_LOGNO_SJ",newLogNo);
+		this.View.InvokeFormOperation("Save");#调用单据保存操作
+		#this.View.ShowMessage(newLogNo);
+		return;
